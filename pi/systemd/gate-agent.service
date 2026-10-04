@@ -1,0 +1,52 @@
+[Unit]
+Description=VecinoSeguro gate-agent (Supabase Realtime listener -> GPIO relay pulse)
+Documentation=file:///opt/vecinoseguro/pi/gate-agent/README.md
+After=network-online.target
+Wants=network-online.target
+# gate-agent needs Supabase reachability (outbound Realtime + REST); it has
+# no dependency on go2rtc/Caddy/cloudflared, so no ordering against those.
+
+[Service]
+Type=simple
+User=vecinoseguro-gate
+Group=gpio
+# ^ dedicated, unprivileged service user, added to the `gpio` group for
+#   GPIO access instead of running as root (see pi/setup/SETUP.md for
+#   user/group creation, pi/setup/SECURITY.md for the least-privilege
+#   rationale).
+#
+# ASSUMPTION / FOLLOW-UP FOR THE gate-agent OWNER: this assumes gate-agent
+# uses a userspace GPIO library (e.g. gpiozero/lgpio) that works via
+# /dev/gpiochip* with group-`gpio` permissions on current Raspberry Pi OS —
+# the standard, well-documented setup for that. If gate-agent instead needs
+# a different access method (e.g. a udev rule granting a different group,
+# or /dev/mem access), confirm with whoever owns pi/gate-agent/ and update
+# `Group=`/add `SupplementaryGroups=` accordingly. This file intentionally
+# does NOT touch or assume the contents of pi/gate-agent/ itself.
+
+EnvironmentFile=/opt/vecinoseguro/pi/.env
+# ^ placeholder path — real, non-committed env file on the Pi. chmod 600,
+#   owned by vecinoseguro-gate (see pi/setup/SECURITY.md). Provides
+#   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GATE_GPIO_PIN, GATE_PULSE_MS,
+#   plus any additive gate-agent-only tuning vars documented in
+#   pi/gate-agent/README.md (see the placeholder section in
+#   pi/.env.example).
+
+WorkingDirectory=/opt/vecinoseguro/pi/gate-agent
+# ASSUMPTION / FOLLOW-UP: the exact venv + entrypoint below is a
+# placeholder — pi/gate-agent/ does not exist yet at time of writing (owned
+# by another engineer). Confirm the real entrypoint module/script once
+# pi/gate-agent/README.md exists and update ExecStart accordingly; do not
+# assume `-m gate_agent` is correct without checking.
+ExecStart=/opt/vecinoseguro/pi/gate-agent/.venv/bin/python -m gate_agent
+
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

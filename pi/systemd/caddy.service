@@ -1,0 +1,50 @@
+[Unit]
+Description=Caddy reverse proxy (Supabase JWT gate) for VecinoSeguro video
+Documentation=file:///opt/vecinoseguro/pi/setup/SETUP.md
+After=network-online.target go2rtc.service
+Wants=network-online.target
+# `After=go2rtc.service` is a soft ordering hint, not a hard requirement
+# (deliberately no `Requires=`/`BindsTo=`): Caddy can start before go2rtc is
+# ready without crashing — it will just return 502 for a proxied request
+# until go2rtc answers — and we don't want a slow go2rtc start to block
+# Caddy from at least serving JWT-gate 401s correctly.
+
+[Service]
+Type=simple
+User=vecinoseguro-video
+Group=vecinoseguro-video
+# ^ same service user as go2rtc — both are part of the same "video
+#   surface"; see pi/setup/SETUP.md. Split further into its own user if
+#   your threat model wants Caddy and go2rtc unable to touch each other's
+#   files.
+
+EnvironmentFile=/opt/vecinoseguro/pi/.env
+# ^ provides SUPABASE_JWT_SECRET, consumed via {env.SUPABASE_JWT_SECRET}
+#   in pi/Caddyfile.
+
+WorkingDirectory=/opt/vecinoseguro/pi
+
+# ASSUMPTION: this ExecStart points at a CUSTOM Caddy build that includes
+# the ggicci/caddy-jwt module (built via xcaddy — see the "Install Caddy"
+# section of pi/setup/SETUP.md), installed at this path INSTEAD OF the
+# stock `caddy` package binary. Using the stock binary here will fail at
+# startup because pi/Caddyfile's `jwtauth` directive won't be registered.
+ExecStart=/usr/local/bin/caddy run --config /opt/vecinoseguro/pi/Caddyfile --adapter caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /opt/vecinoseguro/pi/Caddyfile --adapter caddyfile
+
+Restart=on-failure
+RestartSec=5
+
+# Caddy binds only to 127.0.0.1:8080 (see pi/Caddyfile) — an unprivileged
+# (>1024) port, so no CAP_NET_BIND_SERVICE or similar capability is needed.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+# Caddy needs to write its access log (see pi/Caddyfile `log` block) —
+# grant write access to that one path rather than relaxing ProtectSystem.
+ReadWritePaths=/var/log/caddy
+
+[Install]
+WantedBy=multi-user.target

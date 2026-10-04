@@ -1,0 +1,45 @@
+# pi/cloudflared/config.yml.example
+#
+# OPTIONAL config-file-based way to run cloudflared. See
+# pi/cloudflared/README.md for the tradeoff against the simpler
+# token-only invocation (`cloudflared tunnel run --token ...`), which is
+# what pi/systemd/cloudflared.service uses by DEFAULT in this repo.
+#
+# Use this file only if you deliberately want explicit, versioned ingress
+# rules instead of the token-only flow. If you go this route:
+#   1. Copy this file to `config.yml` (NOT committed — it will contain a
+#      real tunnel ID; keep it out of git, same as .env).
+#   2. Fill in the placeholders below.
+#   3. Point pi/systemd/cloudflared.service's ExecStart at
+#      `cloudflared tunnel run --config /opt/vecinoseguro/pi/cloudflared/config.yml <TUNNEL_NAME>`
+#      instead of the `--token` form (see the commented alternative in
+#      that unit file).
+#
+# PLACEHOLDERS ONLY below — no real tunnel IDs, hostnames, or file paths
+# from an actual deployment.
+
+# The tunnel UUID, created once via `cloudflared tunnel create <name>`
+# (an interactive, human-run, one-time step against a real Cloudflare
+# account — not something this repo can do for you; see pi/setup/SETUP.md
+# and the "follow-up requirements" in this component's final report).
+tunnel: <TUNNEL_ID_PLACEHOLDER>
+
+# Credentials JSON written by `cloudflared tunnel create` — keep this file
+# root-readable only (chmod 600), never committed, same handling as
+# pi/.env.
+credentials-file: /etc/cloudflared/<TUNNEL_ID_PLACEHOLDER>.json
+
+ingress:
+  # Public hostname (set in Cloudflare DNS as a CNAME to
+  # <TUNNEL_ID_PLACEHOLDER>.cfargotunnel.com) routes to Caddy over
+  # localhost. This MUST be the same hostname the app's
+  # EXPO_PUBLIC_VIDEO_BASE_URL points at (app/ env var, not owned here —
+  # see CONTRACT.md). Caddy is the JWT gate; go2rtc is never targeted
+  # directly by the tunnel.
+  - hostname: <VIDEO_TUNNEL_HOSTNAME_PLACEHOLDER>
+    service: http://localhost:8080
+
+  # Catch-all: anything not matching a rule above is rejected rather than
+  # silently proxied somewhere unintended. Required as the last rule by
+  # cloudflared's ingress validation.
+  - service: http_status:404

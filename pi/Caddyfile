@@ -1,0 +1,231 @@
+# pi/Caddyfile
+#
+# Reverse proxy in front of go2rtc, gating EVERY request behind a
+# SHORT-LIVED VIDEO TOKEN (HS256, shared secret SUPABASE_JWT_SECRET) — NOT
+# the user's normal ~1h Supabase session JWT. Deny-by-default: no valid
+# video token => no proxy to go2rtc, full stop.
+#
+# ── WHAT TOKEN THIS ACTUALLY VALIDATES (security fix, CONTRACT.md) ───────
+# Per the updated CONTRACT.md `POST /functions/v1/issue-video-token`
+# section: the app calls that Edge Function to mint a 60s-TTL JWT shaped
+# `{ "sub": <uid>, "purpose": "video", "exp": <now+60> }`, signed with the
+# SAME `SUPABASE_JWT_SECRET` as the user's normal session JWT. The app uses
+# ONLY this video token for streaming (never the raw user JWT), refreshing
+# it ~every 45s while a stream is mounted.
+#
+# Caddy MUST accept ONLY tokens whose `purpose` claim is exactly `"video"`.
+# A valid-signature, unexpired, otherwise-normal Supabase user JWT that
+# lacks `purpose: "video"` MUST be rejected (403) even though it is signed
+# with the correct secret — signature+expiry validation alone is NOT
+# enough, because that would let any logged-in user's long-lived session
+# token view cameras. Checking `purpose == "video"` is what makes a leaked
+# long-lived user token useless here, and it's what makes a blocked user
+# lose video access within 60s (they stop being able to mint new video
+# tokens the moment `issue-video-token` re-checks `profiles.status`, and
+# whatever video token they already have expires within 60s regardless).
+#
+# ── REQUIRES A CUSTOM CADDY BUILD (not stock Caddy) ──────────────────────
+# This file uses the `jwtauth` directive from the third-party module
+# github.com/ggicci/caddy-jwt. Stock/vanilla Caddy does NOT include this
+# module and will fail to parse the `jwtauth` block below. You must build
+# Caddy with xcaddy (or use an equivalent Docker image) first — see
+# pi/setup/SETUP.md for the exact xcaddy build commands / Dockerfile
+# snippet. Do not attempt to run this Caddyfile against the plain
+# `caddy` package from apt/brew.
+#
+# DESIGN DECISION: ggicci/caddy-jwt was chosen because it does exactly one
+# thing (verify a bearer JWT, HS256 shared-secret or JWKS, pull the token
+# from a header or query param, and optionally expose arbitrary claims as
+# placeholders via `meta_claims`) with a small, auditable module surface,
+# rather than a larger auth-gateway module. ASSUMPTION: the directive
+# names/options below (`jwtauth`, `sign_key`, `sign_alg`, `from_header`,
+# `from_query`, `user_claims`, `meta_claims`) reflect that module's
+# documented config as of this writing, and the `vars`/`not` request
+# matcher syntax below reflects stock Caddy's documented matcher set. No
+# `caddy` binary is available in this authoring environment to run `caddy
+# validate` against the built plugin, so this is a manual review, not a
+# tool-verified one — confirm the directive syntax against the actual
+# installed module version once xcaddy has built it, by running:
+#   caddy validate --config pi/Caddyfile --adapter caddyfile
+# on the real Pi (or in the build container) before first production use.
+# In particular, double-check that the placeholder name `meta_claims`
+# produces (`{http.auth.user.jwt_purpose}` below) matches exactly what the
+# installed caddy-jwt version emits for a `"purpose to jwt_purpose"`
+# mapping — this is the single highest-value thing to confirm on real
+# hardware, since a typo'd placeholder name would make `@notVideo` either
+# never match (silently re-opening the raw-user-JWT hole this file exists
+# to close) or always match (breaking all video, fails safe at least).
+#
+# ── NETWORK POSTURE ───────────────────────────────────────────────────────
+# go2rtc listens on 127.0.0.1:1984 ONLY (see pi/go2rtc.yaml) — Caddy is the
+# sole thing allowed to reach it. Caddy itself binds to a LOOPBACK port
+# only (:8080 below); cloudflared (pi/cloudflared/) is the only thing that
+# reaches Caddy, over localhost, and cloudflared's only network access is
+# an OUTBOUND connection out to the Cloudflare edge. No inbound port is
+# ever opened on the router/firewall for this Pi.
+
+{
+	# Register the third-party `jwtauth` directive into Caddy's built-in
+	# directive execution order (required for any plugin directive that
+	# isn't already known to Caddy's default ordering).
+	#
+	# Ordered relative to `respond` (a standard directive) rather than
+	# `reverse_proxy` directly: `respond` already has a fixed default
+	# execution slot earlier than `reverse_proxy` in Caddy's built-in
+	# directive order, so "jwtauth before respond" transitively guarantees
+	# "jwtauth before respond before reverse_proxy" — i.e. the token is
+	# verified AND the purpose-claim check below (`@notVideo` / `respond
+	# @notVideo 403`) both run, in that order, before any request can ever
+	# reach `reverse_proxy`. (Ordering directly against `reverse_proxy`
+	# alone would say nothing about jwtauth's position relative to
+	# `respond`, which is the directive that actually enforces the purpose
+	# check — this stronger, transitive ordering is deliberate.)
+	order jwtauth before respond
+}
+
+# Loopback-only listener. cloudflared's ingress (pi/cloudflared/) points at
+# this same host:port over localhost — no other listener is needed.
+:8080 {
+	bind 127.0.0.1
+
+	# ── Video-token gate, part 1: signature + expiry ─────────────────────
+	# Deny-by-default: if `jwtauth` fails (missing token, bad signature,
+	# expired, wrong alg), Caddy returns 401 and neither the purpose check
+	# below nor `reverse_proxy` is ever reached — go2rtc never sees the
+	# request. NOTE: passing this block only proves the token was minted
+	# with `SUPABASE_JWT_SECRET` and hasn't expired — it does NOT by itself
+	# prove this is a video token rather than a normal user session JWT.
+	# That distinction is enforced separately below by the `@notVideo`
+	# matcher — do not remove that check under the assumption `jwtauth`
+	# alone is sufficient.
+	jwtauth {
+		# Both the short-lived video token (from issue-video-token) and the
+		# normal ~1h user session JWT are HS256-signed with this same
+		# shared secret — that's exactly why signature validation alone
+		# can't distinguish them, see `@notVideo` below.
+		# ASSUMPTION (per CONTRACT.md): HS256 is Supabase's v1 signing
+		# algorithm for this project. If the Supabase project is later
+		# migrated to asymmetric signing keys (RS256/ES256 via JWKS
+		# rotation), this block must change to a public-key/JWKS
+		# verification mode instead of a shared `sign_key` — that is a
+		# breaking change to this file, not a value swap.
+		sign_key {env.SUPABASE_JWT_SECRET}
+		sign_alg HS256
+
+		# Accept the token from either location, per CONTRACT.md's
+		# "Video (app <-> Caddy/go2rtc)" section. Unchanged by this
+		# security fix — still contractual. (See the `log` block below for
+		# why a token arriving via `?access_token=` must never be written
+		# to the access log in plaintext.)
+		from_header Authorization
+		from_query access_token
+
+		# Map the `sub` claim (user id) into {http.auth.user.id} so it can
+		# be forwarded upstream for logging/troubleshooting. go2rtc itself
+		# does not consume or require this claim.
+		user_claims sub
+
+		# ── THE ACTUAL SECURITY FIX ──────────────────────────────────────
+		# Expose the token's `purpose` claim as the placeholder
+		# {http.auth.user.jwt_purpose}, so the `@notVideo` matcher below
+		# can reject any token that isn't a genuine, freshly-minted video
+		# token — including a perfectly valid, unexpired, correctly-signed
+		# normal user session JWT (which simply has no `purpose` claim, or
+		# has some other value), per CONTRACT.md Finding 1.
+		meta_claims "purpose to jwt_purpose"
+	}
+
+	# ── Video-token gate, part 2: purpose check ──────────────────────────
+	# `jwtauth` above only proves "signed by us, not expired". This matcher
+	# is what actually enforces "...and is specifically a video token, not
+	# some other valid Supabase JWT" — reject anything where the mapped
+	# `purpose` claim is not exactly the literal string "video". This is
+	# what makes a leaked long-lived user token unusable for viewing
+	# cameras, and what makes a blocked user's revocation take effect
+	# within 60s (see the file header comment).
+	#
+	# Matcher syntax: the `vars` matcher compares the expanded value of a
+	# placeholder against a literal; `not` negates it. So this reads "match
+	# any request where {http.auth.user.jwt_purpose} does NOT equal
+	# 'video'" — i.e. missing claim, wrong value, or (defense in depth)
+	# jwtauth somehow not having run all match here.
+	@notVideo not vars {http.auth.user.jwt_purpose} video
+	respond @notVideo 403
+
+	# This line is placed textually before `reverse_proxy` for readability,
+	# but per the `order jwtauth before respond` global option above, its
+	# ACTUAL execution order (jwtauth -> this respond -> reverse_proxy) is
+	# guaranteed by Caddy's directive ordering, not by source position —
+	# Caddyfile directives execute in a predefined sequence, not file
+	# order, for any directive with a fixed or explicitly ordered slot.
+
+	# Reverse-proxy the FULL go2rtc HTTP surface behind both gates above —
+	# not just /stream.html. go2rtc's player page makes follow-up browser
+	# requests to its own WebSocket/MSE/HLS media endpoints and JSON API
+	# (e.g. ws, hls .m3u8/.ts segments, mp4 fallback, api/streams, static
+	# assets for the player itself). Cherry-picking only /stream.html would
+	# 404 those follow-up calls and break playback, so every path on this
+	# site block is proxied, all of it gated by the video-token check above
+	# (deny-by-default covers the whole surface, not just the entry page).
+	#
+	# NOTE for future maintainers: go2rtc stream URLs
+	# ({VIDEO_BASE_URL}/stream.html?src={stream_key}) must now carry the
+	# short-lived video token (refreshed ~45s by the app), not the user's
+	# normal session JWT — a "logged in" user's ordinary token will
+	# correctly get a 403 here. This is intentional (see file header); it
+	# is not a bug and not something to "fix" by loosening this Caddyfile.
+	reverse_proxy 127.0.0.1:1984 {
+		header_up X-Forwarded-User {http.auth.user.id}
+		header_up X-Real-IP {remote_host}
+	}
+
+	# ── Structured access log — token leakage fix ────────────────────────
+	# The video token can arrive via `?access_token=<jwt>` (contractual,
+	# see `from_query` above). Logging the raw request URI would therefore
+	# write a live (if short-lived) bearer credential straight into a file
+	# on disk on every request. Fix, two parts:
+	#
+	# 1. `format filter` + the `query` field filter's `replace` action
+	#    rewrites just the `access_token` query parameter's VALUE to a
+	#    fixed placeholder before the line is ever written — the rest of
+	#    the request URI (path, any other query params) is logged
+	#    unchanged. This is the preferred option over dropping the whole
+	#    query string: it removes exactly the secret and nothing else.
+	#    ASSUMPTION (same "no caddy binary here" caveat as above): confirm
+	#    this exact filter syntax with `caddy validate` on real hardware.
+	#    If the installed Caddy/module version rejects this block's exact
+	#    syntax, the acceptable fallback is the strictly simpler
+	#    `format filter { wrap json fields { request>uri query { delete
+	#    access_token } } }` (removes the param entirely instead of
+	#    replacing its value), or — simplest and always correct regardless
+	#    of filter-module syntax drift — dropping the whole query string
+	#    from the logged URI. Either fallback still guarantees the token
+	#    itself never lands in the log file in plaintext, which is the
+	#    actual requirement; the `replace`-just-this-param version above is
+	#    just the more surgical option.
+	# 2. `mode 0600` on the output file so it's not world/group readable on
+	#    disk, in addition to the redaction above (defense in depth: even a
+	#    correctly-redacted log file shouldn't be readable by other local
+	#    users/services). The containing directory (/var/log/caddy/) must
+	#    ALSO be owned by, and restricted to, the `vecinoseguro-video`
+	#    system user/group — that is the exact `User=`/`Group=` that
+	#    pi/systemd/caddy.service runs Caddy as (confirmed by reading that
+	#    file directly, not guessed) — see pi/setup/SETUP.md's Caddy
+	#    install step, which already does `chown vecinoseguro-video
+	#    /var/log/caddy`, and pi/setup/SECURITY.md.
+	log {
+		output file /var/log/caddy/vecinoseguro-access.log {
+			roll_size 10mb
+			roll_keep 5
+			mode 0600
+		}
+		format filter {
+			wrap json
+			fields {
+				request>uri query {
+					replace access_token REDACTED
+				}
+			}
+		}
+	}
+}

@@ -1,0 +1,114 @@
+# pi/go2rtc.yaml
+#
+# go2rtc configuration for the VecinoSeguro gate Pi.
+#
+# ── SECURITY ─────────────────────────────────────────────────────────────
+# go2rtc's listeners below are bound to 127.0.0.1 (loopback) ONLY. go2rtc
+# must NEVER be reachable from the camera LAN (eth1) or the uplink NIC
+# (eth0) — Caddy (pi/Caddyfile) is the only thing allowed to talk to it,
+# and Caddy itself is reachable only through the Cloudflare Tunnel
+# (pi/cloudflared/). go2rtc only ever makes OUTBOUND RTSP connections to
+# pull camera streams — it never listens on a camera-facing or public
+# interface. Cameras are never exposed directly (per CONTRACT.md).
+#
+# ── ENV VAR EXPANSION ────────────────────────────────────────────────────
+# go2rtc supports `${VAR}` substitution anywhere in this YAML file (values
+# are read from the process environment at startup, populated here via the
+# systemd EnvironmentFile — see pi/systemd/go2rtc.service and
+# pi/.env.example). This is documented go2rtc behavior; there is no go2rtc
+# binary available in this authoring environment to exercise it directly,
+# so treat this as a stated assumption to confirm on the real Pi:
+#   sudo systemctl restart go2rtc && sudo journalctl -u go2rtc -n 50
+# Look for the stream names coming up clean with no literal "${...}" left
+# un-substituted in the logs.
+#
+# ── CAMERA STREAM KEYS ───────────────────────────────────────────────────
+# Stream keys below MUST match the `cameras.stream_key` column
+# (CONTRACT.md). `porton_principal` and `caseta_acceso` are EXAMPLE
+# placeholder names — replace/extend them with the real rows from the
+# `cameras` table for this deployment. A third, commented-out example
+# (`acceso_peatonal`) shows the pattern extends to N cameras.
+#
+# ── MAIN vs SUB (fullscreen vs grid) — DESIGN DECISION ───────────────────
+# Each physical camera gets TWO go2rtc stream entries:
+#   - "<stream_key>"      → full-resolution "main" stream (fullscreen view)
+#   - "<stream_key>_sub"  → lower-resolution "sub" stream (grid/dashboard)
+#
+# The app requests `GET {VIDEO_BASE_URL}/stream.html?src=<stream_key>` for
+# the fullscreen/main feed (this is the literal `stream_key` from the DB,
+# per CONTRACT.md — no translation needed). For a lower-res grid tile, it
+# would request `?src=<stream_key>_sub`. The `_sub` suffix convention is a
+# pi/ implementation choice, NOT part of CONTRACT.md's `stream_key` column
+# — confirm this suffix contract with whoever owns app/ grid-view code
+# before relying on it there; CONTRACT.md does not currently document a
+# `_sub` naming rule, so this is this component's proposal, not settled law.
+#
+# ── WHY ffmpeg RE-ENCODE FOR THE SUB STREAM ──────────────────────────────
+# CONTRACT.md gives exactly ONE RTSP URL per camera (`CAMERA_<N>_RTSP_URL`),
+# so the sub-stream below is DERIVED from the already-pulled main stream via
+# go2rtc's built-in ffmpeg re-encode module (`ffmpeg:<stream_name>#...`
+# referencing another stream registered in this same file by name), rather
+# than opening a second RTSP connection to the camera. This costs Pi CPU
+# (one software H.264 downscale per camera) but requires zero additional
+# contractual env vars, keeping this file's env-var surface identical to
+# CONTRACT.md's list.
+#
+# OPTIONAL PRODUCTION OPTIMIZATION (NOT contractual, NOT wired up below):
+# Hikvision DS-2CD1047G2H cameras natively expose a lower-res sub-stream on
+# a different RTSP path on the SAME camera (commonly channel 102 vs the
+# main channel 101, e.g. ".../Streaming/Channels/102"). If Pi CPU load from
+# ffmpeg transcoding becomes a problem with more than a couple of cameras,
+# an operator MAY point the `_sub` stream directly at the camera's native
+# sub-stream RTSP URL instead of the `ffmpeg:` line below. Doing so needs
+# one extra, NON-contractual env var per camera (e.g. a locally-invented
+# `CAMERA_1_RTSP_URL_SUB`) that is NOT part of CONTRACT.md's env var list —
+# if you do this, document it in your own deployment notes and do not
+# rename or repurpose the contractual `CAMERA_<N>_RTSP_URL` name.
+
+streams:
+  # --- EXAMPLE camera 1 — replace stream_key + URL var per real deployment ---
+  porton_principal:
+    - "${CAMERA_1_RTSP_URL}"
+  porton_principal_sub:
+    - "ffmpeg:porton_principal#video=h264#width=640#height=360"
+    # Raspberry Pi hardware-accelerated alternative (uncomment to trade the
+    # software libx264 encode above for the Pi's h264_v4l2m2m encoder via
+    # go2rtc's `#hardware` preset — bench-test before relying on it, some
+    # Raspberry Pi OS builds need extra kernel modules/config for this):
+    # - "ffmpeg:porton_principal#video=h264#hardware#width=640#height=360"
+
+  # --- EXAMPLE camera 2 ---
+  caseta_acceso:
+    - "${CAMERA_2_RTSP_URL}"
+  caseta_acceso_sub:
+    - "ffmpeg:caseta_acceso#video=h264#width=640#height=360"
+
+  # --- EXAMPLE camera 3 (commented out — shows the pattern extends to N) ---
+  # acceso_peatonal:
+  #   - "${CAMERA_3_RTSP_URL}"
+  # acceso_peatonal_sub:
+  #   - "ffmpeg:acceso_peatonal#video=h264#width=640#height=360"
+
+# go2rtc's own HTTP API / player (stream.html) / WS / HLS / MSE surface.
+# Loopback ONLY — Caddy (pi/Caddyfile) reverse-proxies this to the outside
+# world after JWT validation. Never change this to 0.0.0.0 or a LAN address.
+api:
+  listen: "127.0.0.1:1984"
+
+# go2rtc's RTSP module here is used purely as an OUTBOUND CLIENT to pull the
+# camera streams declared under `streams:` above. We don't need go2rtc to
+# re-serve RTSP to anything, so its own RTSP *server* is pinned to loopback
+# too, for the same "never bind camera/public-facing" reason as `api`.
+rtsp:
+  listen: "127.0.0.1:8554"
+
+# WebRTC/ICE is not part of the supported app path (CONTRACT.md specifies
+# stream.html MSE/HLS via Caddy); disable it so go2rtc never attempts to
+# gather external ICE candidates or open a UDP port.
+webrtc:
+  listen: "" # disabled
+
+# VERIFICATION NOTE (see also pi/setup/SETUP.md smoke test): after first
+# start on the real Pi, confirm nothing here ends up bound beyond loopback:
+#   ss -tlnp | grep go2rtc
+# every line should show 127.0.0.1:<port>, never 0.0.0.0 or a NIC IP.

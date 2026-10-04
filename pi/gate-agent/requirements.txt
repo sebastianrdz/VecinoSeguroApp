@@ -1,0 +1,19 @@
+# Runtime dependencies for gate-agent.
+#
+# supabase-py: official Supabase Python client, used for the Postgres
+# Changes Realtime subscription (realtime.py) and the service-role
+# PostgREST calls (repo.py). See gate_agent/realtime.py for why this client
+# was chosen over a hand-rolled websocket implementation.
+supabase==2.9.1
+
+# Loads pi/gate-agent/.env into the process environment for local/dev runs.
+# On the actual Pi, env vars are expected to come from the systemd unit
+# (EnvironmentFile=) rather than this — but harmless either way.
+python-dotenv==1.0.1
+
+# NOTE: RPi.GPIO / gpiozero are intentionally NOT listed here. They are
+# only importable on Raspberry Pi hardware and are imported lazily inside
+# gate_agent/relay.py so this file (and the whole package) stays installable
+# on a dev laptop / CI runner in mock mode. Install RPi.GPIO separately on
+# the Pi itself if you want GATE_AGENT_MODE=gpio, e.g.:
+#   pip install RPi.GPIO

@@ -1,0 +1,35 @@
+[Unit]
+Description=go2rtc (RTSP camera aggregator) for VecinoSeguro
+Documentation=https://github.com/AlexxIT/go2rtc
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vecinoseguro-video
+Group=vecinoseguro-video
+# ^ dedicated, unprivileged service user (no login shell) — see
+#   pi/setup/SETUP.md for creation steps and pi/setup/SECURITY.md for the
+#   least-privilege rationale. go2rtc needs no elevated privileges: it only
+#   opens outbound RTSP connections and a loopback listener (see
+#   pi/go2rtc.yaml).
+
+EnvironmentFile=/opt/vecinoseguro/pi/.env
+# ^ placeholder path for the real, non-committed env file on the Pi.
+#   chmod 600, owned by vecinoseguro-video (see pi/setup/SECURITY.md).
+
+WorkingDirectory=/opt/vecinoseguro/pi
+ExecStart=/usr/local/bin/go2rtc -config /opt/vecinoseguro/pi/go2rtc.yaml
+
+Restart=on-failure
+RestartSec=5
+
+# Hardening — go2rtc doesn't need to write anywhere but its own temp/log
+# space and needs no elevated privileges.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

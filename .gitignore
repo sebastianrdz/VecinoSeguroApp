@@ -1,0 +1,39 @@
+# Secrets & env — NEVER commit real credentials, camera IPs, or network schemes
+.env
+.env.*
+!.env.example
+*.local
+secrets/
+*.pem
+*.key
+
+# Node / Expo
+node_modules/
+.expo/
+dist/
+web-build/
+*.tsbuildlog
+npm-debug.*
+yarn-error.*
+
+# Supabase
+supabase/.branches/
+supabase/.temp/
+
+# Python (Pi gate-agent)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Build artifacts
+*.apk
+*.aab
+*.ipa

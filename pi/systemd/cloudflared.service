@@ -1,0 +1,41 @@
+[Unit]
+Description=cloudflared (outbound-only Cloudflare Tunnel) for VecinoSeguro
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+After=network-online.target caddy.service
+Wants=network-online.target
+# Soft-ordered after Caddy (not a hard `Requires=`) so the tunnel typically
+# comes up once there's something to proxy to; cloudflared retries its own
+# edge connection on its own regardless of local service readiness.
+
+[Service]
+Type=simple
+User=vecinoseguro-tunnel
+Group=vecinoseguro-tunnel
+# ^ dedicated, unprivileged service user — cloudflared needs no elevated
+#   privileges and no GPIO/video access; keep it isolated from the other
+#   three services' users (see pi/setup/SECURITY.md).
+
+EnvironmentFile=/opt/vecinoseguro/pi/.env
+# ^ provides CLOUDFLARE_TUNNEL_TOKEN.
+
+# DEFAULT: token-only invocation — no config.yml required (see
+# pi/cloudflared/README.md for the tradeoff vs the config-file approach).
+# systemd expands ${CLOUDFLARE_TUNNEL_TOKEN} from EnvironmentFile above at
+# ExecStart time.
+ExecStart=/usr/local/bin/cloudflared tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+
+# ALTERNATIVE (config-file method) — comment out ExecStart above and use
+# this instead if you've opted into pi/cloudflared/config.yml (see that
+# directory's README.md for when this makes sense):
+# ExecStart=/usr/local/bin/cloudflared tunnel run --config /opt/vecinoseguro/pi/cloudflared/config.yml <TUNNEL_NAME_PLACEHOLDER>
+
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
