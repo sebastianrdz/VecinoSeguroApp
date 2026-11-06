@@ -17,7 +17,7 @@ import { useAdminManageUser } from '../../hooks/useAdminManageUser';
 import { t } from '../../i18n';
 import { supabase } from '../../lib/supabase';
 import { colors, radii, spacing, typography } from '../../theme/tokens';
-import { TABLES, type Profile, type UserRole } from '../../types/database';
+import { TABLES, type Household, type Profile, type UserRole } from '../../types/database';
 
 export default function NeighborsScreen() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -26,6 +26,11 @@ export default function NeighborsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
+
+  const [households, setHouseholds] = useState<Household[]>([]);
+  const [assignTarget, setAssignTarget] = useState<Profile | null>(null);
+  const [newHouseholdLabel, setNewHouseholdLabel] = useState('');
+  const [assignError, setAssignError] = useState<string | null>(null);
 
   const [inviteVisible, setInviteVisible] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -47,20 +52,28 @@ export default function NeighborsScreen() {
     setProfiles((data as Profile[]) ?? []);
   }, []);
 
+  const fetchHouseholds = useCallback(async () => {
+    const { data } = await supabase
+      .from(TABLES.households)
+      .select('*')
+      .order('unit_label', { ascending: true });
+    setHouseholds((data as Household[]) ?? []);
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     setLoading(true);
-    fetchProfiles().finally(() => {
+    Promise.all([fetchProfiles(), fetchHouseholds()]).finally(() => {
       if (mounted) setLoading(false);
     });
     return () => {
       mounted = false;
     };
-  }, [fetchProfiles]);
+  }, [fetchProfiles, fetchHouseholds]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchProfiles();
+    await Promise.all([fetchProfiles(), fetchHouseholds()]);
     setRefreshing(false);
   }, [fetchProfiles]);
 
@@ -78,6 +91,43 @@ export default function NeighborsScreen() {
     },
     [callAdminManageUser, fetchProfiles]
   );
+
+  const openAssignModal = (profile: Profile) => {
+    setAssignTarget(profile);
+    setNewHouseholdLabel('');
+    setAssignError(null);
+  };
+
+  const assignHousehold = async (householdId: string | null) => {
+    if (!assignTarget) return;
+    const result = await callAdminManageUser({
+      action: 'set_household',
+      user_id: assignTarget.id,
+      household_id: householdId,
+    });
+    if (!result.ok) {
+      setAssignError(t('neighbors.actionError'));
+      return;
+    }
+    setAssignTarget(null);
+    await fetchProfiles();
+  };
+
+  const handleCreateAndAssign = async () => {
+    const label = newHouseholdLabel.trim();
+    if (!label) return;
+    const { data, error: insertError } = await supabase
+      .from(TABLES.households)
+      .insert({ unit_label: label })
+      .select('id')
+      .single();
+    if (insertError || !data) {
+      setAssignError(t('neighbors.actionError'));
+      return;
+    }
+    await fetchHouseholds();
+    await assignHousehold(data.id as string);
+  };
 
   const handleApprove = (profile: Profile) => runAction(profile.id, { action: 'approve', user_id: profile.id });
   const handleBlock = (profile: Profile) => runAction(profile.id, { action: 'block', user_id: profile.id });
@@ -132,6 +182,11 @@ export default function NeighborsScreen() {
           <StatusPill status={item.status} label={t(`status.${item.status}`)} />
         </View>
         <Text style={styles.role}>{t(`roles.${item.role}`)}</Text>
+        <Text style={styles.role}>
+          {t('neighbors.householdLabel')}:{' '}
+          {households.find((h) => h.id === item.household_id)?.unit_label ??
+            t('profile.householdUnset')}
+        </Text>
 
         <View style={styles.actions}>
           {item.status === 'pending' && (
@@ -166,6 +221,14 @@ export default function NeighborsScreen() {
               label={t('neighbors.unblock')}
               onPress={() => handleUnblock(item)}
               loading={isBusy && mutating}
+              variant="secondary"
+              style={styles.actionButton}
+            />
+          )}
+          {item.status !== 'blocked' && (
+            <PrimaryButton
+              label={t('neighbors.assignHousehold')}
+              onPress={() => openAssignModal(item)}
               variant="secondary"
               style={styles.actionButton}
             />
@@ -218,6 +281,64 @@ export default function NeighborsScreen() {
         ListEmptyComponent={<EmptyView message={t('neighbors.empty')} />}
         contentContainerStyle={profiles.length === 0 ? styles.emptyContent : undefined}
       />
+
+      <Modal
+        visible={!!assignTarget}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setAssignTarget(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={typography.h2}>{t('neighbors.assignHousehold')}</Text>
+            <Text style={typography.caption}>{assignTarget?.full_name}</Text>
+
+            {households.map((h) => (
+              <PrimaryButton
+                key={h.id}
+                label={h.unit_label}
+                onPress={() => assignHousehold(h.id)}
+                variant={h.id === assignTarget?.household_id ? 'primary' : 'secondary'}
+                loading={mutating}
+              />
+            ))}
+            {!!assignTarget?.household_id && (
+              <PrimaryButton
+                label={t('neighbors.unassignHousehold')}
+                onPress={() => assignHousehold(null)}
+                variant="secondary"
+                loading={mutating}
+              />
+            )}
+
+            <View style={styles.field}>
+              <Text style={styles.label}>{t('neighbors.newHouseholdLabel')}</Text>
+              <TextInput
+                value={newHouseholdLabel}
+                onChangeText={setNewHouseholdLabel}
+                placeholder={t('neighbors.newHouseholdPlaceholder')}
+                placeholderTextColor={colors.textSecondary}
+                style={styles.input}
+                accessibilityLabel={t('neighbors.newHouseholdLabel')}
+              />
+            </View>
+            <PrimaryButton
+              label={t('neighbors.createAndAssign')}
+              onPress={handleCreateAndAssign}
+              disabled={!newHouseholdLabel.trim()}
+              loading={mutating}
+            />
+
+            {!!assignError && <Text style={styles.rowError}>{assignError}</Text>}
+            <PrimaryButton
+              label={t('common.cancel')}
+              onPress={() => setAssignTarget(null)}
+              variant="secondary"
+              style={styles.modalButton}
+            />
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={inviteVisible}

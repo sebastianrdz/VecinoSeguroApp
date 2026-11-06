@@ -33,6 +33,7 @@ export type OpenGateResponse =
 export type AdminManageUserAction =
   | 'approve'
   | 'set_role'
+  | 'set_household'
   | 'block'
   | 'unblock'
   | 'remove'
@@ -43,7 +44,8 @@ export interface AdminManageUserRequest {
   user_id?: string;
   role?: UserRole;
   email?: string;
-  household_id?: string;
+  /** `null` unassigns the household (set_household only). */
+  household_id?: string | null;
 }
 
 export interface AdminManageUserSuccess {
