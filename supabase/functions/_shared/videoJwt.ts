@@ -10,7 +10,7 @@
  *
  * Produces a standard `header.payload.signature` compact JWS, HS256,
  * verifiable by any standard JWT library (including Caddy's) using the
- * same shared secret (SUPABASE_JWT_SECRET).
+ * same shared secret (VIDEO_JWT_SECRET).
  */
 
 function base64url(bytes: Uint8Array): string {

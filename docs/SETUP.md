@@ -29,7 +29,7 @@ Follow `supabase/README.md`:
 2. `supabase link`, then push migrations (schema + RLS).
 3. Set Edge Function secrets (see names in `CONTRACT.md`), deploy `open-gate`,
    `admin-manage-user`, and `issue-video-token`.
-   - **Critical shared secret:** set `SUPABASE_JWT_SECRET` here AND use the *same* value on the Pi
+   - **Critical shared secret:** set `VIDEO_JWT_SECRET` here (Supabase rejects `SUPABASE_`-prefixed secret names) AND use the *same* value as `SUPABASE_JWT_SECRET` in `pi/.env` on the Pi
      (step 4.2) so Caddy can validate the `purpose:"video"` tokens. If they differ, video auth fails.
 4. Run `seed.sql` (creates a placeholder admin + sample cameras — edit to real, non-committed
    values). Promote your own account to `admin`.

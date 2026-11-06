@@ -12,7 +12,7 @@
  * Flow:
  *   1. Verify the caller's JWT and load their profile.
  *   2. Reject if not active (re-checked fresh on every call -- see above).
- *   3. Sign { sub, purpose: "video", iat, exp } with SUPABASE_JWT_SECRET.
+ *   3. Sign { sub, purpose: "video", iat, exp } with VIDEO_JWT_SECRET.
  */
 import { handleCorsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { authenticate, requireActive, AuthError } from "../_shared/auth.ts";
@@ -32,9 +32,9 @@ Deno.serve(async (req: Request) => {
     const { userId, profile } = await authenticate(req);
     requireActive(profile);
 
-    const jwtSecret = Deno.env.get("SUPABASE_JWT_SECRET");
+    const jwtSecret = Deno.env.get("VIDEO_JWT_SECRET");
     if (!jwtSecret) {
-      console.error("issue-video-token: missing SUPABASE_JWT_SECRET secret");
+      console.error("issue-video-token: missing VIDEO_JWT_SECRET secret");
       return jsonResponse({ ok: false, error: "internal_error" }, 500);
     }
 

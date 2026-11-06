@@ -38,7 +38,9 @@ directory — only clearly-fake placeholders (`*.placeholder@example.com`,
 ## Prerequisites
 
 - [Supabase CLI](https://supabase.com/docs/guides/cli) (`brew install supabase/tap/supabase` or see docs)
-- Docker (for local `supabase start`)
+- Docker Desktop, running, with `docker` on your `PATH` (for local `supabase start`;
+  if the CLI says `docker: command not found`, add `export PATH="$HOME/.docker/bin:$PATH"`
+  to `~/.zshrc`)
 - A Supabase project (for staging/prod deploys) — create one at
   [supabase.com/dashboard](https://supabase.com/dashboard) or via
   `supabase projects create`
@@ -58,10 +60,10 @@ supabase db reset        # applies migrations/*.sql then seed.sql, in order
 add new ones with a later timestamp), then `seed.sql`.
 
 Local URLs after `supabase start` (see its printed output for the actual
-local anon/service_role keys):
+local keys):
 - API: `http://127.0.0.1:54321`
 - Studio: `http://127.0.0.1:54323`
-- Inbucket (test email): `http://127.0.0.1:54324`
+- Mailpit (test email; config section is `[local_smtp]`): `http://127.0.0.1:54324`
 
 ### Local Edge Functions
 
@@ -76,14 +78,19 @@ already covered) with at least:
 
 ```
 SUPABASE_URL=http://127.0.0.1:54321
-SUPABASE_SERVICE_ROLE_KEY=<local service_role key from `supabase start` output>
+SUPABASE_SERVICE_ROLE_KEY=<the "Secret" key (`sb_secret_...`) from `supabase start` output>
 GATE_RATE_LIMIT_SECONDS=8
-SUPABASE_JWT_SECRET=<local JWT secret from `supabase start` output>
+VIDEO_JWT_SECRET=<any random string locally, e.g. `openssl rand -base64 32`>
 ```
 
-`SUPABASE_JWT_SECRET` is the shared HS256 secret `issue-video-token` signs
-video tokens with. It must be the **identical value** configured on the
-Pi/Caddy side (`pi/.env`'s `SUPABASE_JWT_SECRET`, per CONTRACT.md) — Caddy
+Newer CLIs print `sb_secret_...` in place of the old `service_role` JWT. If a
+client rejects it, use `SERVICE_ROLE_KEY` (`eyJ...`) from
+`supabase status -o env`.
+
+`VIDEO_JWT_SECRET` is the shared HS256 secret `issue-video-token` signs
+video tokens with (not `SUPABASE_`-prefixed: Supabase reserves that prefix, so
+`supabase secrets set` rejects it). It must be the **identical value**
+configured on the Pi/Caddy side (`pi/.env`'s `SUPABASE_JWT_SECRET`, per CONTRACT.md) — Caddy
 validates the signature Supabase Edge Functions produce, so both sides need
 the same secret. This is a cross-package deployment step, not something
 either package can derive on its own; coordinate the value at deploy time
@@ -107,8 +114,11 @@ supabase link --project-ref <your-project-ref>
 ## 3. Apply migrations to the linked project
 
 ```bash
-supabase db push
+supabase db push --remote
 ```
+
+(On CLI 3.x a bare `supabase db push` targets the local stack; `--remote`
+targets the linked project. Add `--dry-run` first to preview.)
 
 This applies every file in `migrations/` that hasn't already been recorded
 as applied on the remote project, in order. Review the diff Supabase prints
@@ -135,6 +145,11 @@ the one function-specific secret you should set explicitly:
 
 ```bash
 supabase secrets set GATE_RATE_LIMIT_SECONDS=8
+
+# shared with the Pi (pi/.env SUPABASE_JWT_SECRET) — copy the printed value there
+SECRET=$(openssl rand -base64 32)
+supabase secrets set VIDEO_JWT_SECRET="$SECRET"
+echo "$SECRET"
 ```
 
 (Only override `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` manually if
@@ -221,7 +236,7 @@ be used here — it requires the target's own access-token JWT, which
 - **`issue-video-token`** — any `active` profile may call it. Re-checks
   `profiles.status` fresh on every call (this IS the revocation point per
   CONTRACT.md's video security model) and mints a 60-second HS256 JWT
-  (`{ sub, purpose: "video", iat, exp }`) signed with `SUPABASE_JWT_SECRET`.
+  (`{ sub, purpose: "video", iat, exp }`) signed with `VIDEO_JWT_SECRET`.
   Returns `200 { token, expires_at }` or `401/403 { ok:false, error:
   "unauthorized"|"not_active" }`. The app refreshes this token every ~45s
   while a stream is mounted and sends it (never the raw user JWT) to

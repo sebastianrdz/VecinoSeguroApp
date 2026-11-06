@@ -74,7 +74,7 @@ Change here first, then update dependents. Names are authoritative.
 
 ### POST /functions/v1/issue-video-token  (REQUIRED — security fix, Finding 1)
 - Auth: caller must be `active` (re-check `profiles.status` at mint time — this is the revocation point).
-- Mints a **short-lived JWT** signed with `SUPABASE_JWT_SECRET` (HS256), TTL **60s**, containing at least
+- Mints a **short-lived JWT** signed with `VIDEO_JWT_SECRET` (HS256), TTL **60s**, containing at least
   `{ "sub": <uid>, "purpose": "video", "exp": <now+60> }`.
 - **Response 200:** `{ "token": "<video jwt>", "expires_at": "<iso>" }`
 - **Response 401/403:** `{ "ok": false, "error": "unauthorized" | "not_active" }`
@@ -102,7 +102,7 @@ Change here first, then update dependents. Names are authoritative.
 
 ### supabase/  (Edge Function secrets)
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (provided by platform), `GATE_RATE_LIMIT_SECONDS` (default 8)
-- `SUPABASE_JWT_SECRET` — **shared secret**: the same value MUST be set both here (so `issue-video-token` can sign the video token) and on the Pi (so Caddy can validate it). They must match exactly or video auth fails.
+- `VIDEO_JWT_SECRET` — **shared secret** (Supabase reserves the `SUPABASE_` prefix, so it is named differently here than on the Pi): the same value MUST be set both here (so `issue-video-token` can sign the video token) and as `SUPABASE_JWT_SECRET` on the Pi (so Caddy can validate it). They must match exactly or video auth fails.
 
 ### pi/  (never committed — see pi/.env.example)
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
