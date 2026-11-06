@@ -100,14 +100,20 @@ eas build --profile production --platform all
 eas submit --profile production --platform ios      # or android
 ```
 
-`eas.json` ships three profiles:
+`eas.json` ships three profiles, each with its own `EXPO_PUBLIC_*` values
+(these are public client values — the publishable key is safe to commit):
 
-- `development` — internal distribution, custom dev client, placeholder env
-  values (replace with your project's real Supabase URL/anon key before
-  building, or configure them as EAS secrets/env instead).
-- `preview` — internal distribution build for QA on physical devices.
+- `development` — internal distribution, custom dev client, **dev** Supabase
+  project (`vecino-seguro-dev`).
+- `preview` — internal distribution build for QA on physical devices, also
+  against the **dev** project so testers never touch real neighbors' data.
 - `production` — store-distributable build with auto-incrementing build
-  numbers.
+  numbers, against the **prod** project (`vecino-seguro-prod`).
+
+`EXPO_PUBLIC_VIDEO_BASE_URL` is empty in all three until the Cloudflare Tunnel
+hostname exists (camera tiles show "Sin señal" meanwhile). Set it in
+`eas.json` (or as an EAS env var) **before** a production build you intend to
+release.
 
 ## Video streaming (grid vs. fullscreen)
 

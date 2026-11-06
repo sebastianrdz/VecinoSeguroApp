@@ -8,9 +8,9 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_SUPABASE_URL": "https://YOUR-PROJECT.supabase.co",
-        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "REPLACE_ME",
-        "EXPO_PUBLIC_VIDEO_BASE_URL": "https://gate.example-tunnel.com"
+        "EXPO_PUBLIC_SUPABASE_URL": "https://etaditaxvlwnvvnczwux.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_etbuYs8JS3AXtX3LXCkW5A_4K1edyVe",
+        "EXPO_PUBLIC_VIDEO_BASE_URL": ""
       }
     },
     "preview": {
@@ -18,11 +18,21 @@
       "channel": "preview",
       "ios": {
         "simulator": false
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://etaditaxvlwnvvnczwux.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_etbuYs8JS3AXtX3LXCkW5A_4K1edyVe",
+        "EXPO_PUBLIC_VIDEO_BASE_URL": ""
       }
     },
     "production": {
       "channel": "production",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://zzmmjmdhybxnffkhbwtq.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_q10jIFZ3RyzrnnoRnvqdkg_1UueYtii",
+        "EXPO_PUBLIC_VIDEO_BASE_URL": ""
+      }
     }
   },
   "submit": {
