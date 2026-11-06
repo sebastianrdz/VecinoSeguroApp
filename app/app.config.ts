@@ -30,7 +30,7 @@ const config: ExpoConfig = {
     favicon: './assets/favicon.png',
     bundler: 'metro',
   },
-  plugins: ['expo-secure-store', 'expo-localization'],
+  plugins: ['expo-secure-store', 'expo-localization', 'expo-status-bar'],
   extra: {
     eas: {
       // Replace with the real EAS project id after running `eas init`.

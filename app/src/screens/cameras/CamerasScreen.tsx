@@ -6,7 +6,7 @@ import {
   StyleSheet,
   Text,
   View,
-  type ViewToken,
+  type ListViewToken,
 } from 'react-native';
 import { useNavigation, type CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -77,7 +77,7 @@ export default function CamerasScreen() {
 
   // Tracks which camera ids the FlatList currently considers visible.
   const onViewableItemsChanged = useRef(
-    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    ({ viewableItems }: { viewableItems: ListViewToken[] }) => {
       setVisibleIds(viewableItems.map((viewToken) => (viewToken.item as Camera).id));
     }
   ).current;
