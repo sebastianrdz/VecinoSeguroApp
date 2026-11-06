@@ -37,3 +37,6 @@ Thumbs.db
 *.apk
 *.aab
 *.ipa
+
+# Impeccable design-tool state (critique snapshots)
+.impeccable/
