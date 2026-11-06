@@ -19,7 +19,8 @@ export const colors = {
 
   danger: '#B3261E',
   dangerLight: '#FBEAE9',
-  warning: '#8A6D1D',
+  // Darkened from #8A6D1D: that was 4.42:1 on warningLight (below the 4.5 AA floor).
+  warning: '#6B5413',
   warningLight: '#FBF3D9',
   success: '#0F5132',
   successLight: '#E3F3EA',
@@ -52,4 +53,9 @@ export const typography = {
   bodyBold: { fontSize: 16, fontWeight: '600' as const, color: colors.textPrimary },
   caption: { fontSize: 13, fontWeight: '400' as const, color: colors.textSecondary },
   button: { fontSize: 16, fontWeight: '700' as const, color: colors.textInverse },
+  // Gate hero: read at arm's length, outdoors, in a hurry.
+  heroLabel: { fontSize: 34, fontWeight: '800' as const, letterSpacing: -0.5 },
+  heroSub: { fontSize: 18, fontWeight: '500' as const },
+  // Secondary info that must still be readable in sunlight (16, never 13).
+  meta: { fontSize: 16, fontWeight: '500' as const, color: colors.textSecondary },
 };

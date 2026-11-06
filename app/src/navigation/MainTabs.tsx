@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { useRole } from '../hooks/useRole';
@@ -14,16 +14,26 @@ import type { MainTabParamList } from './types';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
+// Drawn icons (one stroke family); filled when focused, outline otherwise.
 const ICONS: Record<keyof MainTabParamList, string> = {
-  Cameras: '📷',
-  Gate: '🚪',
-  Activity: '📋',
-  Neighbors: '👥',
-  Profile: '👤',
+  Cameras: 'videocam',
+  Gate: 'lock-closed',
+  Activity: 'list',
+  Neighbors: 'people',
+  Profile: 'person',
 };
 
-function TabIcon({ route, color }: { route: keyof MainTabParamList; color: string }) {
-  return <Text style={{ fontSize: 20, color }}>{ICONS[route]}</Text>;
+function TabIcon({
+  route,
+  color,
+  focused,
+}: {
+  route: keyof MainTabParamList;
+  color: string;
+  focused: boolean;
+}) {
+  const name = (focused ? ICONS[route] : `${ICONS[route]}-outline`) as keyof typeof Ionicons.glyphMap;
+  return <Ionicons name={name} size={24} color={color} />;
 }
 
 /**
@@ -40,13 +50,14 @@ export default function MainTabs() {
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textSecondary,
-        tabBarIcon: ({ color }) => (
-          <TabIcon route={route.name as keyof MainTabParamList} color={color} />
+        tabBarIcon: ({ color, focused }) => (
+          <TabIcon route={route.name as keyof MainTabParamList} color={color} focused={focused} />
         ),
       })}
     >
-      <Tab.Screen name="Cameras" component={CamerasScreen} options={{ title: t('nav.cameras') }} />
+      {/* Gate first: it is the most urgent job, so the app opens on it. */}
       <Tab.Screen name="Gate" component={GateScreen} options={{ title: t('nav.gate') }} />
+      <Tab.Screen name="Cameras" component={CamerasScreen} options={{ title: t('nav.cameras') }} />
       {isAdmin && (
         <Tab.Screen
           name="Activity"
