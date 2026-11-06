@@ -1,24 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  type ListViewToken,
-} from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View, type ListViewToken } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, type CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { WebView } from 'react-native-webview';
 
 import ScreenContainer from '../../components/ScreenContainer';
-import { LoadingView, ErrorView, EmptyView } from '../../components/StateViews';
+import { LoadingView, ErrorView } from '../../components/StateViews';
 import { useVideoToken } from '../../hooks/useVideoToken';
-import { supabase, buildStreamUrl } from '../../lib/supabase';
+import { supabase } from '../../lib/supabase';
 import { t } from '../../i18n';
 import { colors, radii, spacing, typography } from '../../theme/tokens';
+import CameraTile from './CameraTile';
 import { TABLES, type Camera } from '../../types/database';
 import type { MainTabParamList, RootStackParamList } from '../../navigation/types';
 
@@ -45,8 +38,11 @@ export default function CamerasScreen() {
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
   const [visibleIds, setVisibleIds] = useState<string[]>([]);
 
-  const loadCameras = useCallback(async () => {
-    setState({ kind: 'loading' });
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadCameras = useCallback(async (silent = false) => {
+    // A pull-to-refresh keeps the grid on screen instead of flashing the spinner.
+    if (!silent) setState({ kind: 'loading' });
     const { data, error } = await supabase
       .from(TABLES.cameras)
       .select('*')
@@ -54,11 +50,18 @@ export default function CamerasScreen() {
       .order('sort_order', { ascending: true });
 
     if (error) {
-      setState({ kind: 'error' });
+      // A failed refresh keeps the cameras already shown.
+      if (!silent) setState({ kind: 'error' });
       return;
     }
     setState({ kind: 'loaded', cameras: (data ?? []) as Camera[] });
   }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadCameras(true);
+    setRefreshing(false);
+  }, [loadCameras]);
 
   useEffect(() => {
     loadCameras();
@@ -99,48 +102,93 @@ export default function CamerasScreen() {
   // Supabase user session JWT — see CONTRACT.md "issue-video-token" /
   // "Video". Only mint/refresh while at least one tile is actually live, per
   // the contract's "while a stream is mounted" refresh condition.
-  const { state: videoTokenState } = useVideoToken(liveIds.size > 0);
+  const { state: videoTokenState, retry: retryVideoToken } = useVideoToken(liveIds.size > 0);
   const videoToken = videoTokenState.kind === 'ready' ? videoTokenState.token : null;
+  const tokenFailed = videoTokenState.kind === 'denied' || videoTokenState.kind === 'error';
+
+  // Top inset: this tab has no header, so the content must clear the status bar.
+  const edges = ['top', 'bottom', 'left', 'right'] as const;
 
   if (state.kind === 'loading') {
     return (
-      <ScreenContainer>
-        <LoadingView />
+      <ScreenContainer edges={edges}>
+        <LoadingView label={t('cameras.loading')} />
       </ScreenContainer>
     );
   }
 
   if (state.kind === 'error') {
     return (
-      <ScreenContainer>
-        <ErrorView message={t('cameras.loadError')} onRetry={loadCameras} />
+      <ScreenContainer edges={edges}>
+        <ErrorView message={t('cameras.loadError')} onRetry={() => loadCameras()} />
       </ScreenContainer>
     );
   }
 
   if (state.cameras.length === 0) {
     return (
-      <ScreenContainer>
-        <EmptyView message={t('cameras.empty')} />
+      <ScreenContainer edges={edges}>
+        <View style={styles.empty}>
+          <Ionicons name="videocam-off-outline" size={56} color={colors.textSecondary} />
+          <Text style={styles.emptyTitle}>{t('cameras.empty')}</Text>
+          <Text style={styles.emptyHint}>{t('cameras.emptyHint')}</Text>
+        </View>
       </ScreenContainer>
     );
   }
 
+  // A handful of cameras reads best one per row, big enough to see at a
+  // glance; a larger community gets the denser two-column grid.
+  const numColumns = state.cameras.length <= 4 ? 1 : 2;
+  const count =
+    state.cameras.length === 1
+      ? t('cameras.countOne')
+      : t('cameras.countMany', { count: state.cameras.length });
+
   return (
-    <ScreenContainer>
+    <ScreenContainer edges={edges}>
+      <Text style={[typography.meta, styles.summary]} accessibilityRole="header">
+        {t('cameras.title')} · {count}
+      </Text>
+
+      {videoTokenState.kind === 'denied' && (
+        <View style={styles.banner} accessibilityLiveRegion="polite">
+          <Text style={styles.bannerTitle}>{t('cameras.noVideoAccess')}</Text>
+          <Text style={styles.bannerMessage}>{t('cameras.noVideoAccessMessage')}</Text>
+        </View>
+      )}
+      {videoTokenState.kind === 'error' && (
+        <View style={styles.banner} accessibilityLiveRegion="polite">
+          <Text style={styles.bannerTitle}>{t('cameras.videoErrorTitle')}</Text>
+          <Text style={styles.bannerMessage}>{t('cameras.videoErrorMessage')}</Text>
+          <Pressable
+            onPress={retryVideoToken}
+            style={styles.bannerAction}
+            accessibilityRole="button"
+          >
+            <Text style={styles.bannerActionText}>{t('common.retry')}</Text>
+          </Pressable>
+        </View>
+      )}
+
       <FlatList
+        key={`columns-${numColumns}`}
         data={state.cameras}
         keyExtractor={(camera) => camera.id}
-        numColumns={2}
-        columnWrapperStyle={styles.row}
+        numColumns={numColumns}
+        columnWrapperStyle={numColumns > 1 ? styles.row : undefined}
         contentContainerStyle={styles.list}
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         renderItem={({ item }) => (
           <CameraTile
             camera={item}
             videoToken={videoToken}
+            tokenFailed={tokenFailed}
             isLive={liveIds.has(item.id)}
+            wide={numColumns === 1}
             onPress={() => handlePress(item)}
           />
         )}
@@ -149,120 +197,56 @@ export default function CamerasScreen() {
   );
 }
 
-function CameraTile({
-  camera,
-  videoToken,
-  isLive,
-  onPress,
-}: {
-  camera: Camera;
-  /** Short-lived `purpose:"video"` token (never the raw user JWT) — `null` while unavailable/denied/loading. */
-  videoToken: string | null;
-  isLive: boolean;
-  onPress: () => void;
-}) {
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
-
-  // A tile that scrolls off-screen and back on should get a clean attempt
-  // (no stale error, fresh loading spinner) rather than reusing whatever
-  // state it left behind.
-  useEffect(() => {
-    if (!isLive) {
-      setIsLoading(true);
-      setHasError(false);
-    }
-  }, [isLive]);
-
-  // If minting the video token fails (denied/error), `videoToken` is null
-  // here, so the tile simply falls back to the static placeholder below —
-  // never a raw error state for a grid tile.
-  const showWebview = isLive && !!videoToken && !hasError;
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.tile, pressed && styles.tilePressed]}
-      accessibilityRole="button"
-      accessibilityLabel={camera.name}
-    >
-      <View style={styles.thumbnail}>
-        {showWebview && (
-          <WebView
-            source={{ uri: buildStreamUrl(camera.stream_key, videoToken!, { sub: true }) }}
-            style={styles.webview}
-            pointerEvents="none"
-            allowsInlineMediaPlayback
-            mediaPlaybackRequiresUserAction={false}
-            javaScriptEnabled
-            domStorageEnabled
-            onLoadStart={() => setIsLoading(true)}
-            onLoadEnd={() => setIsLoading(false)}
-            onError={() => setHasError(true)}
-            onHttpError={() => setHasError(true)}
-          />
-        )}
-        {showWebview && isLoading && (
-          <View style={styles.tileLoadingOverlay} pointerEvents="none">
-            <ActivityIndicator size="small" color={colors.textInverse} />
-          </View>
-        )}
-        <View style={styles.liveBadge} pointerEvents="none">
-          <Text style={styles.liveBadgeText}>{t('cameras.liveLabel')}</Text>
-        </View>
-      </View>
-      <Text style={styles.tileName} numberOfLines={1}>
-        {camera.name}
-      </Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   list: {
     paddingBottom: spacing.md,
+    flexGrow: 1,
   },
   row: {
     gap: spacing.md,
   },
-  tile: {
-    flex: 1,
-    marginBottom: spacing.md,
+  summary: {
+    paddingVertical: spacing.sm,
   },
-  tilePressed: {
-    opacity: 0.85,
-  },
-  thumbnail: {
-    aspectRatio: 4 / 3,
+  banner: {
+    backgroundColor: colors.warningLight,
     borderRadius: radii.md,
-    backgroundColor: colors.primaryDark,
-    justifyContent: 'flex-start',
-    alignItems: 'flex-start',
-    padding: spacing.sm,
-    overflow: 'hidden',
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.xs,
   },
-  webview: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: colors.primaryDark,
+  bannerTitle: {
+    ...typography.bodyBold,
+    color: colors.warning,
   },
-  tileLoadingOverlay: {
-    ...StyleSheet.absoluteFill,
+  bannerMessage: {
+    ...typography.body,
+    color: colors.warning,
+  },
+  bannerAction: {
+    minHeight: 48,
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+  },
+  bannerActionText: {
+    ...typography.bodyBold,
+    color: colors.warning,
+    textDecorationLine: 'underline',
+  },
+  empty: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    padding: spacing.lg,
+    gap: spacing.sm,
   },
-  liveBadge: {
-    backgroundColor: colors.danger,
-    borderRadius: radii.pill,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs / 2,
+  emptyTitle: {
+    ...typography.h3,
+    textAlign: 'center',
   },
-  liveBadgeText: {
-    ...typography.caption,
-    color: colors.textInverse,
-    fontWeight: '700',
-  },
-  tileName: {
-    ...typography.bodyBold,
-    marginTop: spacing.xs,
+  emptyHint: {
+    ...typography.body,
+    color: colors.textSecondary,
+    textAlign: 'center',
   },
 });

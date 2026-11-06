@@ -96,15 +96,24 @@ const es = {
 
   cameras: {
     title: 'Cámaras',
-    empty: 'Todavía no hay cámaras configuradas.',
+    loading: 'Cargando cámaras…',
+    countOne: '1 cámara',
+    countMany: '{{count}} cámaras',
+    empty: 'Aún no hay cámaras',
+    emptyHint: 'Cuando el administrador las agregue, aparecerán aquí.',
     loadError: 'No se pudieron cargar las cámaras.',
     streamLoadError: 'No se pudo cargar la transmisión en vivo.',
     streamLoading: 'Conectando con la cámara…',
     liveLabel: 'EN VIVO',
+    connecting: 'Conectando…',
+    noSignal: 'Sin señal',
     disabledLabel: 'Fuera de servicio',
+    openFullscreen: 'Toca para verla en pantalla completa',
     noVideoAccess: 'Sin acceso al video',
     noVideoAccessMessage:
-      'No se pudo obtener acceso de video para tu cuenta. Si el problema continúa, contacta a la administración.',
+      'Tu cuenta no tiene acceso al video en este momento. Si el problema continúa, contacta al administrador de tu comunidad.',
+    videoErrorTitle: 'No se pudo conectar con el video',
+    videoErrorMessage: 'Revisa tu internet e inténtalo de nuevo.',
   },
 
   gate: {
