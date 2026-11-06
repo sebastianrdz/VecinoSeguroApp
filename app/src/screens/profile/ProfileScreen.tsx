@@ -1,12 +1,14 @@
-import React, { useEffect, useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, type CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
+import * as Haptics from 'expo-haptics';
 
-import PrimaryButton from '../../components/PrimaryButton';
 import ScreenContainer from '../../components/ScreenContainer';
-import StatusPill from '../../components/StatusPill';
+import EditProfileSheet from './EditProfileSheet';
 import { useAuth } from '../../context/AuthContext';
 import { t } from '../../i18n';
 import { supabase } from '../../lib/supabase';
@@ -19,20 +21,43 @@ type ProfileNavProp = CompositeNavigationProp<
   NativeStackNavigationProp<RootStackParamList>
 >;
 
+type HouseholdState =
+  | { kind: 'unset' }
+  | { kind: 'loading' }
+  | { kind: 'error' }
+  | { kind: 'found'; label: string };
+
+/** "Ana Pérez" -> "AP"; falls back to the email's first letter, then "?". */
+function initialsOf(fullName: string | undefined, email: string | undefined): string {
+  const words = (fullName ?? '').trim().split(/\s+/).filter(Boolean);
+  if (words.length > 0) {
+    return words
+      .slice(0, 2)
+      .map((w) => w.charAt(0))
+      .join('')
+      .toUpperCase();
+  }
+  return (email ?? '?').charAt(0).toUpperCase();
+}
+
 export default function ProfileScreen() {
   const { profile, session, signOut } = useAuth();
   const navigation = useNavigation<ProfileNavProp>();
 
-  const [householdLabel, setHouseholdLabel] = useState<string | null>(null);
+  const [household, setHousehold] = useState<HouseholdState>({ kind: 'unset' });
+  const [reloadKey, setReloadKey] = useState(0);
+  const [signingOut, setSigningOut] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     let mounted = true;
 
     if (!profile?.household_id) {
-      setHouseholdLabel(null);
+      setHousehold({ kind: 'unset' });
       return;
     }
 
+    setHousehold({ kind: 'loading' });
     supabase
       .from(TABLES.households)
       .select('unit_label')
@@ -40,113 +65,269 @@ export default function ProfileScreen() {
       .single()
       .then(({ data, error }) => {
         if (!mounted) return;
-        setHouseholdLabel(error ? null : (data?.unit_label ?? null));
+        setHousehold(
+          error || !data?.unit_label ? { kind: 'error' } : { kind: 'found', label: data.unit_label }
+        );
       });
 
     return () => {
       mounted = false;
     };
-  }, [profile?.household_id]);
+  }, [profile?.household_id, reloadKey]);
+
+  const doSignOut = useCallback(async () => {
+    setSigningOut(true);
+    try {
+      await signOut();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    } catch {
+      setSigningOut(false);
+      Alert.alert(t('profile.signOutError'));
+    }
+  }, [signOut]);
 
   const handleSignOut = () => {
-    Alert.alert(
-      t('profile.signOutConfirmTitle'),
-      t('profile.signOutConfirmMessage'),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        { text: t('profile.signOut'), style: 'destructive', onPress: () => signOut() },
-      ]
-    );
+    Alert.alert(t('profile.signOutConfirmTitle'), t('profile.signOutConfirmMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('profile.signOut'), style: 'destructive', onPress: doSignOut },
+    ]);
   };
 
+  const email = session?.user.email ?? '';
+  const fullName = profile?.full_name?.trim() ?? '';
+  const isAdmin = profile?.role === 'admin';
+  const version = Constants.expoConfig?.version;
+
   return (
-    <ScreenContainer scroll>
-      <Text style={typography.h1}>{t('profile.title')}</Text>
-
-      <View style={styles.card}>
-        <Text style={styles.name}>{profile?.full_name ?? ''}</Text>
-        <Text style={styles.email}>{session?.user.email ?? ''}</Text>
-
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>{t('profile.roleLabel')}</Text>
-          <Text style={styles.infoValue}>{profile ? t(`roles.${profile.role}`) : ''}</Text>
+    <ScreenContainer scroll edges={['top', 'bottom', 'left', 'right']}>
+      <View style={styles.identity}>
+        <View style={styles.avatar} accessible={false} importantForAccessibility="no-hide-descendants">
+          <Text style={styles.avatarText}>{initialsOf(fullName, email)}</Text>
         </View>
-
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>{t('profile.statusLabel')}</Text>
-          {profile && <StatusPill status={profile.status} label={t(`status.${profile.status}`)} />}
-        </View>
-
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>{t('profile.household')}</Text>
-          <Text style={styles.infoValue}>
-            {householdLabel ?? t('profile.householdUnset')}
+        {!!fullName && (
+          <Text style={styles.name} numberOfLines={2} accessibilityRole="header">
+            {fullName}
           </Text>
-        </View>
+        )}
+        {!!email && (
+          <Text style={styles.email} numberOfLines={1} ellipsizeMode="middle">
+            {email}
+          </Text>
+        )}
+        {isAdmin && (
+          <View style={styles.rolePill}>
+            <Text style={styles.rolePillText}>{t('roles.admin')}</Text>
+          </View>
+        )}
+        <Pressable
+          onPress={() => setEditing(true)}
+          style={({ pressed }) => [styles.editButton, pressed && styles.editButtonPressed]}
+          accessibilityRole="button"
+        >
+          <Ionicons name="create-outline" size={22} color={colors.primary} />
+          <Text style={styles.editButtonText}>{t('profile.edit')}</Text>
+        </Pressable>
       </View>
 
-      <Text style={styles.sectionTitle}>{t('profile.settingsTitle')}</Text>
-      <View style={styles.card}>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>{t('profile.languageLabel')}</Text>
-          <Text style={styles.infoValue}>{t('profile.languageValue')}</Text>
+      <View style={styles.group}>
+        <View
+          style={[styles.row, styles.rowDivider]}
+          accessible
+          accessibilityLabel={`${t('profile.phone')}: ${profile?.phone || t('profile.phoneUnset')}`}
+        >
+          <Ionicons name="call-outline" size={24} color={colors.textSecondary} />
+          <View style={styles.rowBody}>
+            <Text style={styles.rowLabel}>{t('profile.phone')}</Text>
+            <Text style={styles.rowValue} numberOfLines={1}>
+              {profile?.phone || t('profile.phoneUnset')}
+            </Text>
+          </View>
         </View>
 
-        <PrimaryButton
-          label={t('profile.privacyNotice')}
+        <View
+          style={[styles.row, styles.rowDivider]}
+          accessible
+          accessibilityLabel={`${t('profile.household')}: ${
+            household.kind === 'found'
+              ? household.label
+              : household.kind === 'error'
+                ? t('profile.householdError')
+                : household.kind === 'loading'
+                  ? t('common.loading')
+                  : t('profile.householdUnset')
+          }`}
+        >
+          <Ionicons name="home-outline" size={24} color={colors.textSecondary} />
+          <View style={styles.rowBody}>
+            <Text style={styles.rowLabel}>{t('profile.household')}</Text>
+            <Text style={styles.rowValue} numberOfLines={2}>
+              {household.kind === 'found' && household.label}
+              {household.kind === 'loading' && t('common.loading')}
+              {household.kind === 'error' && t('profile.householdError')}
+              {household.kind === 'unset' && t('profile.householdUnset')}
+            </Text>
+            {household.kind === 'unset' && (
+              <Text style={styles.rowHint}>{t('profile.householdUnsetHint')}</Text>
+            )}
+          </View>
+          {household.kind === 'error' && (
+            <Pressable
+              onPress={() => setReloadKey((k) => k + 1)}
+              hitSlop={8}
+              style={styles.retry}
+              accessibilityRole="button"
+              accessibilityLabel={t('common.retry')}
+            >
+              <Ionicons name="refresh" size={24} color={colors.primary} />
+            </Pressable>
+          )}
+        </View>
+
+        <Pressable
           onPress={() => navigation.navigate('PrivacyNotice')}
-          variant="secondary"
-          style={styles.rowButton}
-        />
+          style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+          accessibilityRole="button"
+        >
+          <Ionicons name="document-text-outline" size={24} color={colors.textSecondary} />
+          <Text style={[styles.rowValue, styles.rowGrow]}>{t('profile.privacyNotice')}</Text>
+          <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
+        </Pressable>
       </View>
 
-      <PrimaryButton
-        label={t('profile.signOut')}
+      <Pressable
         onPress={handleSignOut}
-        variant="danger"
-        style={styles.signOutButton}
-      />
+        disabled={signingOut}
+        style={({ pressed }) => [styles.group, styles.row, styles.signOut, pressed && styles.rowPressed]}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: signingOut, busy: signingOut }}
+      >
+        <Ionicons name="log-out-outline" size={24} color={colors.danger} />
+        <Text style={styles.signOutText}>{t('profile.signOut')}</Text>
+      </Pressable>
+
+      <EditProfileSheet visible={editing} onClose={() => setEditing(false)} />
+
+      {!!version && <Text style={styles.version}>{t('profile.appVersion', { version })}</Text>}
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
+  identity: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.lg,
+  },
+  avatar: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    fontSize: 34,
+    fontWeight: '800',
+    color: colors.textInverse,
+  },
+  name: {
+    ...typography.h2,
+    textAlign: 'center',
+  },
+  email: {
+    ...typography.meta,
+    maxWidth: '100%',
+  },
+  rolePill: {
+    backgroundColor: colors.primaryLight,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+  },
+  rolePillText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: 48,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radii.pill,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+  },
+  editButtonPressed: {
+    backgroundColor: colors.primaryLight,
+  },
+  editButtonText: {
+    ...typography.bodyBold,
+    color: colors.primary,
+  },
+  group: {
     backgroundColor: colors.surface,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
+    overflow: 'hidden',
     marginTop: spacing.md,
-    gap: spacing.sm,
   },
-  name: {
-    ...typography.h3,
-  },
-  email: {
-    ...typography.caption,
-    marginBottom: spacing.xs,
-  },
-  infoRow: {
+  row: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 64,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
-  infoLabel: {
+  rowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  rowPressed: {
+    backgroundColor: colors.background,
+  },
+  rowBody: {
+    flex: 1,
+    gap: 2,
+  },
+  rowGrow: {
+    flex: 1,
+  },
+  rowLabel: {
+    ...typography.meta,
+  },
+  rowValue: {
+    ...typography.h3,
+    fontWeight: '500',
+  },
+  rowHint: {
     ...typography.body,
     color: colors.textSecondary,
   },
-  infoValue: {
-    ...typography.bodyBold,
+  retry: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  sectionTitle: {
-    ...typography.h3,
+  signOut: {
     marginTop: spacing.lg,
   },
-  rowButton: {
-    marginTop: spacing.sm,
+  signOutText: {
+    ...typography.h3,
+    fontWeight: '500',
+    color: colors.danger,
   },
-  signOutButton: {
-    marginTop: spacing.xl,
+  version: {
+    ...typography.meta,
+    textAlign: 'center',
+    marginTop: spacing.lg,
+    paddingBottom: spacing.md,
   },
 });
