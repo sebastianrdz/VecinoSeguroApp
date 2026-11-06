@@ -74,6 +74,8 @@ const es = {
       goToLogin: 'Inicia sesión',
       genericError: 'No se pudo crear la cuenta. Inténtalo de nuevo.',
       emailInUse: 'Ese correo ya está registrado.',
+      checkEmail:
+        'Te enviamos un correo para confirmar tu cuenta. Revisa tu bandeja de entrada y luego inicia sesión.',
       weakPassword: 'La contraseña es demasiado corta.',
     },
     pendingApproval: {

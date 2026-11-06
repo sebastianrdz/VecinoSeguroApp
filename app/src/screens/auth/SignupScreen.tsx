@@ -36,6 +36,7 @@ export default function SignupScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [checkEmail, setCheckEmail] = useState(false);
 
   const validate = (): boolean => {
     const errors: FieldErrors = {};
@@ -56,12 +57,13 @@ export default function SignupScreen() {
 
   const handleSubmit = async () => {
     setFormError(null);
+    setCheckEmail(false);
     if (!validate()) {
       return;
     }
 
     setSubmitting(true);
-    const { error: signUpError } = await signUp({
+    const { error: signUpError, needsEmailConfirmation } = await signUp({
       fullName: fullName.trim(),
       email: email.trim(),
       password,
@@ -74,8 +76,10 @@ export default function SignupScreen() {
       setFormError(
         isEmailInUse ? t('auth.signup.emailInUse') : t('auth.signup.genericError')
       );
+    } else if (needsEmailConfirmation) {
+      setCheckEmail(true);
     }
-    // On success, do nothing extra — RootNavigator will show PendingApproval
+    // Otherwise do nothing extra — RootNavigator will show PendingApproval
     // automatically once the session exists (status defaults to 'pending').
   };
 
@@ -159,6 +163,7 @@ export default function SignupScreen() {
         </View>
 
         {formError && <Text style={styles.errorText}>{formError}</Text>}
+        {checkEmail && <Text style={styles.infoText}>{t('auth.signup.checkEmail')}</Text>}
 
         <PrimaryButton
           label={submitting ? t('auth.signup.submitting') : t('auth.signup.submit')}
@@ -227,6 +232,11 @@ const styles = StyleSheet.create({
   errorText: {
     ...typography.caption,
     color: colors.danger,
+    marginBottom: spacing.md,
+  },
+  infoText: {
+    ...typography.caption,
+    color: colors.success,
     marginBottom: spacing.md,
   },
   submitButton: {

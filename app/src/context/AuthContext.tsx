@@ -27,7 +27,9 @@ interface AuthContextValue {
   /** True while a profile refetch is in flight after bootstrap. */
   refreshingProfile: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (params: SignUpParams) => Promise<{ error: string | null }>;
+  signUp: (
+    params: SignUpParams
+  ) => Promise<{ error: string | null; needsEmailConfirmation?: boolean }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -114,13 +116,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     // If a DB trigger creates the profiles row from auth metadata, make sure
     // full_name/phone land there even when the trigger only copies `id`.
-    if (data.user?.id) {
+    if (data.user?.id && data.session) {
       await supabase
         .from(TABLES.profiles)
         .update({ full_name: fullName, phone: phone ?? null })
         .eq('id', data.user.id);
     }
-    return { error: null };
+    // No session on success means the project requires email confirmation.
+    return { error: null, needsEmailConfirmation: !data.session };
   }, []);
 
   const signOut = useCallback(async () => {
