@@ -111,6 +111,15 @@ supabase login
 supabase link --project-ref <your-project-ref>
 ```
 
+### Email templates (es-MX)
+
+`templates/confirmation.html`, `invite.html` and `recovery.html` are the
+Spanish auth emails. `config.toml` loads them for the **local** stack (see them
+in Mailpit after `supabase start`). A hosted project keeps its own copy: in the
+dashboard open **Authentication → Emails → Templates**, and for each template
+paste the matching file's HTML and the subject from `config.toml`. Repeat for
+every hosted project (dev and prod).
+
 ## 3. Apply migrations to the linked project
 
 ```bash
